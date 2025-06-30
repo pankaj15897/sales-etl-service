@@ -1,0 +1,66 @@
+steps:
+  # Build Docker image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'gcr.io/$PROJECT_ID/sales-etl:$COMMIT_SHA', '.']
+  
+  # Run unit tests
+  - name: 'gcr.io/$PROJECT_ID/sales-etl:$COMMIT_SHA'
+    args: ['python', '-m', 'unittest', 'discover', '-s', '.']
+  
+  # Push to Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/sales-etl:$COMMIT_SHA']
+  
+  # Deploy to Staging with 10% traffic
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'sales-etl-staging'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/sales-etl:$COMMIT_SHA'
+      - '--region'
+      - 'us-central1'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      - '--set-env-vars'
+      - 'ENVIRONMENT=staging,BQ_DATASET=staging_sales'
+      - '--revision-suffix'
+      - '$COMMIT_SHA'
+  
+  # Deploy to Production with 90% traffic
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'sales-etl-prod'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/sales-etl:$COMMIT_SHA'
+      - '--region'
+      - 'us-central1'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      - '--set-env-vars'
+      - 'ENVIRONMENT=production,BQ_DATASET=production_sales'
+      - '--revision-suffix'
+      - '$COMMIT_SHA'
+  
+  # Configure traffic splitting
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'services'
+      - 'update-traffic'
+      - 'sales-etl-prod'
+      - '--to-revisions'
+      - 'LATEST=90'
+      - '--region'
+      - 'us-central1'
+
+images:
+  - 'gcr.io/$PROJECT_ID/sales-etl:$COMMIT_SHA'
